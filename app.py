@@ -11,13 +11,13 @@ from sklearn.metrics.pairwise import cosine_similarity
 import pickle
 from transformers import AutoTokenizer
 from sentence_transformers import SentenceTransformer, util
-
+import asyncio
 # Download required NLTK data
 nltk.download('stopwords')
 nltk.download('punkt')
 
 # Set the event loop policy
-#asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
+asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
 
 
 def load_embeddings_and_model(filename='contents/embeddings_data.pkl'):
