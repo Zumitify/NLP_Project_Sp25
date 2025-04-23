@@ -32,12 +32,4 @@ ENV/
 
 # System
 .DS_Store
-Thumbs.db
-
-# Large data files
-contents/embeddings_data.pkl
-contents/vectorizer.pkl
-contents/tfidf_matrix.pkl
-contents/reviews_df.pkl
-contents/metadata_df.pkl
-contents/docs_df.pkl 
+Thumbs.db 
