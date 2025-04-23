@@ -15,9 +15,9 @@ import torch
 from nltk.tokenize import word_tokenize
 from sklearn.metrics.pairwise import cosine_similarity
 import pickle
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, AutoModel
 from sentence_transformers import SentenceTransformer, util
-#import asyncio
+import os
 
 # Download required NLTK data
 nltk.download('stopwords')
