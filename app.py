@@ -2,22 +2,15 @@ import streamlit as st
 import requests
 from io import BytesIO
 from PIL import Image
-import string
 import pandas as pd
 import re
 import nltk
 from nltk.corpus import stopwords
-from collections import Counter
-from sklearn.feature_extraction.text import TfidfVectorizer
-import numpy as np
-import scipy
 import torch
-from nltk.tokenize import word_tokenize
 from sklearn.metrics.pairwise import cosine_similarity
 import pickle
-from transformers import AutoTokenizer, AutoModel
+from transformers import AutoTokenizer
 from sentence_transformers import SentenceTransformer, util
-import os
 
 # Download required NLTK data
 nltk.download('stopwords')
