@@ -13,15 +13,15 @@ import pickle
 from transformers import AutoTokenizer
 from sentence_transformers import SentenceTransformer, util
 import asyncio
-import tempfile
 import os
-import shutil
-import numpy
 # Download required NLTK data
 nltk.download('stopwords')
 nltk.download('punkt')
 # Initialize the stemmer
 stemmer = PorterStemmer()
+
+# Set the event loop policy
+#asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
 
 def download_from_github():
     """Download required files from GitHub if they don't exist locally."""
@@ -68,8 +68,6 @@ if not download_from_github():
     st.error("Failed to download required files. Please check the logs for details.")
     st.stop()
 
-# Set the event loop policy
-#asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
 
 
 def load_embeddings_and_model(filename='contents/embeddings_data.pkl'):
@@ -153,25 +151,43 @@ def find_similar_products(query, model, metadata_embeddings, product_asins, top_
 def semantic_search_similar_products(similar_products_df, query_embedding, review_embeddings, metadata_embeddings, alpha=0.5):
     """Perform semantic search on similar products using combined embeddings."""
     results = {}
-
     
-    for _, row in similar_products_df.iterrows():
+    for idx, row in similar_products_df.iterrows():
         asin = row['parent_asin']
         try:
             # Get the index of the ASIN in the embeddings
             asin_index = None
-            if isinstance(metadata_embeddings, torch.Tensor):
-                # If embeddings are tensors, we need to find the index
-                asin_index = row.name  # Use the row index if embeddings are in order
+            
+            if isinstance(metadata_embeddings, dict):
+                # If embeddings are dictionaries, use ASIN as key
+                if asin in metadata_embeddings:
+                    asin_index = asin
+            elif isinstance(metadata_embeddings, torch.Tensor):
+                # If embeddings are tensors, use row index
+                asin_index = idx
             
             if asin_index is not None:
-                # Handle tensor case
-                metadata_embedding = metadata_embeddings[asin_index]
-                review_embedding = review_embeddings[asin_index]
+                # Get embeddings based on type
+                if isinstance(metadata_embeddings, dict):
+                    metadata_embedding = metadata_embeddings[asin]
+                    review_embedding = review_embeddings[asin]
+                else:
+                    metadata_embedding = metadata_embeddings[asin_index]
+                    review_embedding = review_embeddings[asin_index]
+                
+                # Ensure embeddings are tensors
+                if not isinstance(metadata_embedding, torch.Tensor):
+                    metadata_embedding = torch.tensor(metadata_embedding)
+                if not isinstance(review_embedding, torch.Tensor):
+                    review_embedding = torch.tensor(review_embedding)
                 
                 # Combine embeddings with weighted average
                 combined_embedding = (alpha * metadata_embedding + (1 - alpha) * review_embedding)
 
+                # Ensure query_embedding is the right shape for semantic_search
+                if len(query_embedding.shape) == 1:
+                    query_embedding = query_embedding.unsqueeze(0)
+                
                 # Calculate similarity using semantic_search
                 hits = util.semantic_search(query_embedding, [combined_embedding])
 
@@ -181,7 +197,7 @@ def semantic_search_similar_products(similar_products_df, query_embedding, revie
                         results.setdefault(asin, score)
                 
         except Exception as e:
-            st.write(f"Debug: Error processing ASIN {asin}: {str(e)}")
+            st.write(f"Error processing ASIN {asin}: {str(e)}")
             continue
     
     return results
@@ -422,7 +438,7 @@ def main():
         search_method = st.selectbox(
             "Select search method",
             ["TF-IDF based", "TF-IDF Hybrid based", "Semantic Search based"],
-            index=1  # Default to TF-IDF Hybrid
+            index=0  # Default to TF-IDF Hybrid
         )
     
     # Add some space
@@ -578,20 +594,17 @@ def main():
         st.session_state.search_text = ""
         st.rerun()
     
-    # Display results if available
+    # Displaing results
     if st.session_state.history and len(st.session_state.history) > 0:
         latest = st.session_state.history[-1]
         
         st.subheader(f"Search Results for: '{latest['prompt']}'")
         st.caption(f"Method: {latest['method']}")
-        
-        # Display results table
+
         results_df = latest['results'].copy()
-        
-        # Format the Score column to show fewer decimal places
+        # Formating the Score column to show fewer decimal places
         results_df['Score'] = results_df['Score'].apply(lambda x: f"{x:.4f}")
-        
-        # Display column headings
+
         col1, col2, col3, col4 = st.columns([1, 2, 1, 1])
         with col1:
             st.write("**ASIN**")
@@ -601,10 +614,9 @@ def main():
             st.write("**Score**")
         with col4:
             st.write("**Image**")
+        st.markdown("---")
         
-        st.markdown("---")  # Separator after headings
-        
-        # Display table with images
+        # Displaing table with images
         for i, row in results_df.iterrows():
             col1, col2, col3, col4 = st.columns([1, 2, 1, 1])
             
@@ -612,7 +624,7 @@ def main():
                 st.write(row['ASIN'])
             
             with col2:
-                # Create Amazon search URL
+                # Creating Amazon search URL
                 search_url = f"https://www.amazon.com/s?k={row['Product Title'].replace(' ', '+')}"
                 st.markdown(f"[{row['Product Title']}]({search_url})", unsafe_allow_html=True)
             
@@ -625,160 +637,7 @@ def main():
                 else:
                     st.write("No image available")
             
-            st.markdown("---")  # Separator between rows
-
-def load_embeddings_and_model2(filename='embeddings_data.pkl'):
-    """Load embeddings and initialize model from Hugging Face."""
-    try:
-        # Download file from Hugging Face
-        url = f"https://huggingface.co/Zumitify/NLP_project_models/resolve/main/{filename}"
-        response = requests.get(url, stream=True)
-        response.raise_for_status()
-        
-        # Create a temporary file to store the downloaded data
-        with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
-            for chunk in response.iter_content(chunk_size=8192):
-                tmp_file.write(chunk)
-            tmp_path = tmp_file.name
-        
-        # Load data with explicit CPU mapping
-        data = torch.load(
-            tmp_path,
-            map_location=torch.device('cpu')
-        )
-        
-        # Clean up temporary file
-        os.unlink(tmp_path)
-        
-        # Initialize model
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        model = SentenceTransformer(data['model_name'], device=device)
-        
-        # Convert embeddings to CPU if they are tensors
-        if isinstance(data['metadata_embeddings'], torch.Tensor):
-            data['metadata_embeddings'] = data['metadata_embeddings'].to('cpu')
-        elif isinstance(data['metadata_embeddings'], dict):
-            for key in data['metadata_embeddings']:
-                if isinstance(data['metadata_embeddings'][key], torch.Tensor):
-                    data['metadata_embeddings'][key] = data['metadata_embeddings'][key].to('cpu')
-        
-        if isinstance(data['review_embeddings'], torch.Tensor):
-            data['review_embeddings'] = data['review_embeddings'].to('cpu')
-        elif isinstance(data['review_embeddings'], dict):
-            for key in data['review_embeddings']:
-                if isinstance(data['review_embeddings'][key], torch.Tensor):
-                    data['review_embeddings'][key] = data['review_embeddings'][key].to('cpu')
-        
-        return (
-            data['metadata_embeddings'],
-            data['review_embeddings'],
-            data['product_asins'],
-            model
-        )
-    except Exception as e:
-        st.error(f"Error loading embeddings from Hugging Face: {e}")
-        return None, None, None, None
-
-@st.cache_resource
-def load_data2():
-    """Load data from Hugging Face instead of local directory."""
-    try:
-        # List of files to download
-        files_to_load = [
-            'metadata_df.pkl',
-            'reviews_df.pkl',
-            'docs_df.pkl',
-            'vectorizer.pkl',
-            'tfidf_matrix.pkl'
-        ]
-        
-        # Create a temporary directory to store downloaded files
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # Download and load each file
-            loaded_data = {}
-            for file in files_to_load:
-                st.write(f"Processing file: {file}")  # Debug print
-                url = f"https://huggingface.co/Zumitify/NLP_project_models/resolve/main/{file}"
-                response = requests.get(url, stream=True)
-                response.raise_for_status()
-                
-                temp_file_path = os.path.join(temp_dir, file)
-                with open(temp_file_path, 'wb') as f:
-                    for chunk in response.iter_content(chunk_size=8192):
-                        f.write(chunk)
-                
-                # Load data using appropriate method based on file type
-                if file in ['metadata_df.pkl', 'reviews_df.pkl', 'docs_df.pkl']:
-                    st.write(f"Loading pandas dataframe: {file}")  # Debug print
-                    # Custom unpickler for pandas dataframes
-                    class CustomUnpickler(pickle.Unpickler):
-                        def find_class(self, module, name):
-                            st.write(f"Finding class: {module}.{name}")  # Debug print
-                            # Handle numpy module paths and special functions
-                            if module.startswith('numpy'):
-                                if name == '_reconstruct':
-                                    return numpy.core.multiarray._reconstruct
-                                elif name == '_frombuffer':
-                                    return numpy.core.numeric._frombuffer
-                                elif name == 'dtype':
-                                    return numpy.dtype
-                                module = 'numpy'
-                            return super().find_class(module, name)
-                        
-                        def persistent_load(self, pid):
-                            st.write(f"Persistent load: {pid}")  # Debug print
-                            # Handle persistent loading for numpy objects
-                            if isinstance(pid, tuple) and len(pid) == 2:
-                                if pid[0] == 'numpy.core.multiarray':
-                                    return numpy.core.multiarray._reconstruct
-                                elif pid[0] == 'numpy.core.numeric':
-                                    return numpy.core.numeric._frombuffer
-                            elif isinstance(pid, str):
-                                if pid == 'numpy.core.multiarray._reconstruct':
-                                    return numpy.core.multiarray._reconstruct
-                                elif pid == 'numpy.core.numeric._frombuffer':
-                                    return numpy.core.numeric._frombuffer
-                            return super().persistent_load(pid)
-                    
-                    try:
-                        with open(temp_file_path, 'rb') as f:
-                            loaded_data[file.replace('.pkl', '')] = CustomUnpickler(f).load()
-                        st.write(f"Successfully loaded {file}")  # Debug print
-                    except Exception as e:
-                        st.error(f"Error loading {file}: {str(e)}")
-                        raise
-                else:
-                    st.write(f"Loading regular pickle file: {file}")  # Debug print
-                    try:
-                        with open(temp_file_path, 'rb') as f:
-                            loaded_data[file.replace('.pkl', '')] = pickle.load(f)
-                        st.write(f"Successfully loaded {file}")  # Debug print
-                    except Exception as e:
-                        st.error(f"Error loading {file}: {str(e)}")
-                        raise
-            
-            st.write("Loading embeddings and model...")  # Debug print
-            try:
-                metadata_embeddings, review_embeddings, product_asins, model = load_embeddings_and_model()
-                st.write("Successfully loaded embeddings and model")  # Debug print
-            except Exception as e:
-                st.error(f"Error loading embeddings and model: {str(e)}")
-                raise
-            
-            return (
-                loaded_data['metadata_df'],
-                loaded_data['reviews_df'],
-                loaded_data['docs_df'],
-                loaded_data['vectorizer'],
-                loaded_data['tfidf_matrix'],
-                model,
-                metadata_embeddings,
-                product_asins,
-                review_embeddings
-            )
-    except Exception as e:
-        st.error(f"Error loading data from Hugging Face: {e}")
-        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), None, None, None, None, None, None
+            st.markdown("---")
 
 if __name__ == "__main__":
     main()
