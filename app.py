@@ -14,17 +14,14 @@ from transformers import AutoTokenizer
 from sentence_transformers import SentenceTransformer, util
 import asyncio
 import os
-# Download required NLTK data
 nltk.download('stopwords')
 nltk.download('punkt')
-# Initialize the stemmer
 stemmer = PorterStemmer()
 
 # Set the event loop policy
 #asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
 
 def download_from_github():
-    """Download required files from GitHub if they don't exist locally."""
     # List of files to download
     files_to_download = [
         'embeddings_data.pkl',
@@ -37,12 +34,11 @@ def download_from_github():
     
     # Base URL for raw GitHub content
     base_url = "https://raw.githubusercontent.com/Zumitify/NLP_Project_Sp25/main/contents/"
-    
-    # Create contents directory if it doesn't exist
+
     if not os.path.exists('contents'):
         os.makedirs('contents')
     
-    # Download each file if it doesn't exist
+    # Downloading each file if it doesn't exist
     for file in files_to_download:
         file_path = os.path.join('contents', file)
         if not os.path.exists(file_path):
@@ -61,9 +57,6 @@ def download_from_github():
                 return False
     return True
 
-
-
-# Download required files at startup
 if not download_from_github():
     st.error("Failed to download required files. Please check the logs for details.")
     st.stop()
@@ -71,21 +64,19 @@ if not download_from_github():
 
 
 def load_embeddings_and_model(filename='contents/embeddings_data.pkl'):
-    """Load embeddings and initialize model from pickle file."""
     try:
-        # Load data with explicit CPU mapping and pickle module
+        # Loading data with explicit CPU mapping and pickle module
         data = torch.load(
             filename,
             map_location=torch.device('cpu'),
             pickle_module=pickle,
             weights_only=False
         )
-        
-        # Initialize model
+
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         model = SentenceTransformer(data['model_name'], device=device)
         
-        # Convert list embeddings to dictionary format
+        # Converting list embeddings to dictionary format
         metadata_embeddings_dict = {}
         review_embeddings_dict = {}
         
@@ -107,7 +98,6 @@ def load_embeddings_and_model(filename='contents/embeddings_data.pkl'):
 
 
 def find_similar_products(query, model, metadata_embeddings, product_asins, top_n=50):
-    """Find similar products using semantic search and return both results and query embedding."""
     if metadata_embeddings is None or len(metadata_embeddings) == 0:
         st.warning("No product embeddings available.")
         return pd.DataFrame(), None
@@ -119,26 +109,23 @@ def find_similar_products(query, model, metadata_embeddings, product_asins, top_
     # Encode query
     query_embedding = model.encode(query, convert_to_tensor=True)
     
-    # Convert dictionary embeddings to tensor if needed
+    # Convert dictionary embeddings to tensor
     if isinstance(metadata_embeddings, dict):
-        # Create a list of embeddings in the same order as product_asins
         embeddings_list = []
         for asin in product_asins:
             if asin in metadata_embeddings:
                 embeddings_list.append(metadata_embeddings[asin])
             else:
-                # If ASIN not found, use a zero vector of the same dimension
                 embeddings_list.append(torch.zeros_like(next(iter(metadata_embeddings.values()))))
-        
-        # Stack the embeddings into a tensor
+
         metadata_embeddings_tensor = torch.stack(embeddings_list)
     else:
         metadata_embeddings_tensor = metadata_embeddings
     
-    # Find similar products
+    # Finding similar products
     hits = util.semantic_search(query_embedding, metadata_embeddings_tensor, top_k=top_n)
     
-    # Create initial results dataframe
+    # Creating initial results dataframe
     results = []
     if hits and hits[0]:
         for hit in hits[0]:
@@ -149,7 +136,7 @@ def find_similar_products(query, model, metadata_embeddings, product_asins, top_
                 'similarity_score': score
             })
     
-    # Convert to DataFrame and sort by similarity_score in descending order
+    # Converting to DataFrame and sorting by similarity_score in descending order
     results_df = pd.DataFrame(results)
     if not results_df.empty:
         results_df = results_df.sort_values('similarity_score', ascending=False)
@@ -157,13 +144,12 @@ def find_similar_products(query, model, metadata_embeddings, product_asins, top_
     return results_df, query_embedding
 
 def semantic_search_similar_products(similar_products_df, query_embedding, review_embeddings, metadata_embeddings, alpha=0.5):
-    """Perform semantic search on similar products using combined embeddings."""
     results = {}
     
     for idx, row in similar_products_df.iterrows():
         asin = row['parent_asin']
         try:
-            # Get the index of the ASIN in the embeddings
+            # Getting the index of the ASIN in the embeddings
             asin_index = None
             
             if isinstance(metadata_embeddings, dict):
@@ -183,16 +169,14 @@ def semantic_search_similar_products(similar_products_df, query_embedding, revie
                     metadata_embedding = metadata_embeddings[asin_index]
                     review_embedding = review_embeddings[asin_index]
                 
-                # Ensure embeddings are tensors
+                # Ensuring embeddings are tensors
                 if not isinstance(metadata_embedding, torch.Tensor):
                     metadata_embedding = torch.tensor(metadata_embedding)
                 if not isinstance(review_embedding, torch.Tensor):
                     review_embedding = torch.tensor(review_embedding)
-                
-                # Combine embeddings with weighted average
+
                 combined_embedding = (alpha * metadata_embedding + (1 - alpha) * review_embedding)
 
-                # Ensure query_embedding is the right shape for semantic_search
                 if len(query_embedding.shape) == 1:
                     query_embedding = query_embedding.unsqueeze(0)
                 
@@ -290,7 +274,7 @@ def embed_long_doc(text, max_tokens=512, stride=256, pool="mean", model=None, to
         tokenizer = AutoTokenizer.from_pretrained('sentence-transformers/all-MiniLM-L6-v2', use_fast=True)
     
     try:
-        # Tokenize the text
+        # Tokenizing the text
         tokens = tokenizer.encode(text, add_special_tokens=False, truncation=True, max_length=max_tokens)
         
         # If text is short enough, process it directly
@@ -298,7 +282,7 @@ def embed_long_doc(text, max_tokens=512, stride=256, pool="mean", model=None, to
             with torch.no_grad():
                 return model.encode(text, convert_to_tensor=True, show_progress_bar=False)
         
-        # For longer texts, use sliding window approach
+        # If text is longer than max_tokens, use sliding window approach
         slices = []
         for i in range(0, len(tokens), stride):
             slice_tokens = tokens[i:i + max_tokens]
@@ -315,7 +299,7 @@ def embed_long_doc(text, max_tokens=512, stride=256, pool="mean", model=None, to
                 batch_embeddings = model.encode(batch, convert_to_tensor=True, show_progress_bar=False)
                 slice_embeddings.append(batch_embeddings)
         
-        # Combine all embeddings
+        # Combining all embeddings
         all_embeddings = torch.cat(slice_embeddings, dim=0)
         
         if pool == "mean":
@@ -327,37 +311,30 @@ def embed_long_doc(text, max_tokens=512, stride=256, pool="mean", model=None, to
             
     except Exception as e:
         st.warning(f"Error in embedding document: {str(e)}")
-        return torch.zeros(384)  # Return zero vector in case of error
+        return torch.zeros(384)
 
 # Recommendation functions
 def recommend_products_based_on_tfidf(query, top_n=5):
-    """Recommend products based on TF-IDF similarity."""
     # Get global variables
     docs_df = st.session_state.docs_df
     vectorizer = st.session_state.vectorizer
     tfidf_matrix = st.session_state.tfidf_matrix
-    
-    # Transform query
+
     q_vec = vectorizer.transform([query])
     
-    # Calculate cosine similarity
+    # Calculating cosine similarity
     cosine_scores = cosine_similarity(q_vec, tfidf_matrix).flatten()
-    
-    # Get top indices
+
     top_indices = cosine_scores.argsort()[::-1][:50]
-    
-    # Create dataframe with candidate products
     candidate_products = docs_df.iloc[top_indices].copy()
     candidate_products['tfidf_score'] = cosine_scores[top_indices]
     
     # Sort by score and return top N
     candidate_products = candidate_products.sort_values('tfidf_score', ascending=False)
     candidate_products = candidate_products.reset_index(drop=True)
-    
-    # Get the top N results
     top_results = candidate_products.head(top_n)
     
-    # Create final results with proper titles from metadata_df
+    # Creating final results with proper titles from metadata_df
     results = pd.DataFrame({
         'parent_asin': top_results['parent_asin'],
         'title_processed': top_results['parent_asin'].apply(
@@ -373,14 +350,9 @@ def recommend_products_based_on_tfidf(query, top_n=5):
     return results
 
 def recommend_products_based_on_sentence_transformers(query, top_n=5):
-    """Recommend products using a hybrid approach with TF-IDF and Sentence Transformers."""
-    # Get tfidf candidates
     tfidf_result = recommend_products_based_on_tfidf(query, top_n=50)
-    
-    # Get model
     model = st.session_state.model
-    
-    # Encode query
+
     query_embedding = model.encode(query, convert_to_tensor=True)
     
     # Encode documents
@@ -389,20 +361,18 @@ def recommend_products_based_on_sentence_transformers(query, top_n=5):
     
     # Calculate similarities
     sims = util.cos_sim(query_embedding, doc_embeddings).squeeze(0)
-    
-    # Add scores to dataframe
     tfidf_result['semantic_score'] = sims.cpu().tolist()
     
-    # Calculate combined score
+    # Calculating combined score
     tfidf_result['combined_score'] = (
         0.6 * tfidf_result['tfidf_score'] +
         0.4 * tfidf_result['semantic_score']
     )
     
-    # Get top results and ensure proper titles
+    # Getting top results 
     top_results = tfidf_result.nlargest(top_n, 'combined_score')
     
-    # Create final results with proper titles from metadata_df
+    # Creating final results with proper titles from metadata_df
     results = pd.DataFrame({
         'parent_asin': top_results['parent_asin'],
         'title_processed': top_results['parent_asin'].apply(
@@ -418,16 +388,14 @@ def recommend_products_based_on_sentence_transformers(query, top_n=5):
     return results
 
 
-# ----- Streamlit App -----
+###### Streamlit App
 
 def main():
-    # Set page title and icon
     st.set_page_config(
         page_title="Reviews based Recommender",
         layout="wide"
     )
 
-    # Custom CSS to reduce padding at the top
     st.markdown("""
         <style>
             .block-container {
@@ -438,8 +406,7 @@ def main():
             }
         </style>
     """, unsafe_allow_html=True)
-    
-    # Title and search method in the same row
+
     col1, col2 = st.columns([3, 1])
     with col1:
         st.title("Reviews based Recommender")
@@ -447,14 +414,11 @@ def main():
         search_method = st.selectbox(
             "Select search method",
             ["TF-IDF based", "TF-IDF Hybrid based", "Semantic Search based"],
-            index=0  # Default to TF-IDF Hybrid
+            index=0  # Default to TF-IDF method
         )
-    
-    # Add some space
+
     st.markdown("<br>", unsafe_allow_html=True)
 
-    
-    # Search bar (wider)
     col1, col2, col3 = st.columns([1, 3, 1])
     with col2:
         if 'search_text' not in st.session_state:
@@ -462,28 +426,25 @@ def main():
         prompt = st.text_input("Enter your product search", value=st.session_state.search_text, key="search_input", label_visibility="collapsed", placeholder="Search for products...")
         st.session_state.search_text = prompt
     
-    # Buttons below search bar (centered)
+    # Search bar buttons
     col1, col2, col3, col4 = st.columns([2, 1, 1, 2])
     with col2:
         search_button = st.button("🔍 Search", use_container_width=True)
     with col3:
         reset_button = st.button("🔄 Reset", use_container_width=True)
-    
-    # Handle enter key press
+
     if prompt and not search_button and not reset_button:
         search_button = True
-    
-    # Initialize session state for history if it doesn't exist
+
     if 'history' not in st.session_state:
         st.session_state.history = []
     
-    # Initialize data if not already done
+    # Initializing data if not already done
     if 'data_loaded' not in st.session_state or not st.session_state.data_loaded:
         with st.spinner("Loading data and models..."):
             try:
                 metadata_df, reviews_df, docs_df, vectorizer, tfidf_matrix, model, metadata_embeddings, product_asins, review_embeddings = load_data()
-                
-                # Store in session state
+
                 st.session_state.metadata_df = metadata_df
                 st.session_state.reviews_df = reviews_df
                 st.session_state.docs_df = docs_df
@@ -502,19 +463,16 @@ def main():
     if search_button and prompt:
         # Preprocess the prompt
         processed_prompt = preprocess_text(prompt)
-        
-        # Show loading spinner while processing
+
         with st.spinner("Searching for products..."):
             # Get recommendations based on selected method
             if search_method == "TF-IDF based":
                 results = recommend_products_based_on_tfidf(processed_prompt)
-                # Prepare results for display
                 display_results = results[['parent_asin', 'title_processed', 'tfidf_score']].copy()
                 display_results.columns = ['ASIN', 'Product Title', 'Score']
                 
             elif search_method == "TF-IDF Hybrid based":
                 results = recommend_products_based_on_sentence_transformers(processed_prompt)
-                # Prepare results for display
                 display_results = results.copy()
                 display_results.columns = ['ASIN', 'Product Title', 'Score']
                 
@@ -527,7 +485,7 @@ def main():
                     st.error("Review embeddings not available. Please ensure review_embeddings.pkl exists.")
                     return
                 
-                # Get initial results and query embedding
+                # Getting initial results and query embedding
                 initial_results, query_embedding = find_similar_products(
                     processed_prompt,
                     st.session_state.model,
@@ -539,7 +497,7 @@ def main():
                     st.warning("No results found using semantic search.")
                     return
                 
-                # Perform semantic search on similar products
+                # Performing semantic search on similar products
                 semantic_results = semantic_search_similar_products(
                     initial_results,
                     query_embedding,
@@ -547,16 +505,16 @@ def main():
                     st.session_state.metadata_embeddings
                 )
                 
-                # Get top 5 results
+                # Getting top 5 results
                 top_results = dict(sorted(semantic_results.items(), key=lambda x: x[1], reverse=True)[:5])
                 
-                # Create display results
+                # Creating display results
                 display_results = pd.DataFrame({
                     'ASIN': list(top_results.keys()),
                     'Score': list(top_results.values())
                 })
                 
-                # Add product titles for Semantic Search
+                # Adding product titles for Semantic Search
                 display_results['Product Title'] = display_results['ASIN'].apply(
                     lambda x: st.session_state.metadata_df[
                         st.session_state.metadata_df['parent_asin'] == x
@@ -565,22 +523,17 @@ def main():
                     ]['title'].values) > 0 else 'Unknown'
                 )
             
-            # Add image column
+            # Adding image 
             display_results['Image'] = None
             
-            # Get image URLs for each product
+            # Getting image URLs for each product
             for i, row in display_results.iterrows():
                 asin = row['ASIN']
                 try:
-                    # Find product in reviews_df
                     product_images = st.session_state.reviews_df[st.session_state.reviews_df['parent_asin'] == asin]['images'].values
-                    
-                    # Check if there are any images
                     if len(product_images) > 0:
-                        # Get the first non-empty array
                         for img_array in product_images:
                             if len(img_array) > 0:
-                                # Get the first image's large_image_url
                                 img_url = img_array[0].get('large_image_url', None)
                                 if img_url:
                                     img = get_image_from_url(img_url)
@@ -590,7 +543,7 @@ def main():
                 except Exception as e:
                     continue
             
-            # Store in history
+            # Storing in history
             st.session_state.history.append({
                 'prompt': prompt,
                 'method': search_method,
