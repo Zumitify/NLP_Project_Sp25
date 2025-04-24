@@ -8,16 +8,68 @@ import nltk
 from nltk.corpus import stopwords
 import torch
 from sklearn.metrics.pairwise import cosine_similarity
+from nltk.stem import PorterStemmer
 import pickle
 from transformers import AutoTokenizer
 from sentence_transformers import SentenceTransformer, util
 import asyncio
+import tempfile
+import os
+import shutil
+import numpy
 # Download required NLTK data
 nltk.download('stopwords')
 nltk.download('punkt')
+# Initialize the stemmer
+stemmer = PorterStemmer()
+
+def download_from_github():
+    """Download required files from GitHub if they don't exist locally."""
+    # List of files to download
+    files_to_download = [
+        'embeddings_data.pkl',
+        'vectorizer.pkl',
+        'tfidf_matrix.pkl',
+        'reviews_df.pkl',
+        'metadata_df.pkl',
+        'docs_df.pkl'
+    ]
+    
+    # Base URL for raw GitHub content
+    base_url = "https://raw.githubusercontent.com/Zumitify/NLP_Project_Sp25/main/contents/"
+    
+    # Create contents directory if it doesn't exist
+    if not os.path.exists('contents'):
+        os.makedirs('contents')
+    
+    # Download each file if it doesn't exist
+    for file in files_to_download:
+        file_path = os.path.join('contents', file)
+        if not os.path.exists(file_path):
+            try:
+                st.write(f"Downloading {file}...")
+                url = base_url + file
+                response = requests.get(url, stream=True)
+                response.raise_for_status()
+                
+                with open(file_path, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                st.write(f"Successfully downloaded {file}")
+            except Exception as e:
+                st.error(f"Error downloading {file}: {str(e)}")
+                return False
+    return True
+
+
+
+# Download required files at startup
+if not download_from_github():
+    st.error("Failed to download required files. Please check the logs for details.")
+    st.stop()
 
 # Set the event loop policy
-asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
+#asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
 
 
 def load_embeddings_and_model(filename='contents/embeddings_data.pkl'):
@@ -187,6 +239,7 @@ def preprocess_text(text):
     text = emoji_pattern.sub(' ', text)
     text = text.lower()
     text = re.sub(pattern, ' ', text)
+    text = stemmer.stem(text)
     words = text.split()
     filtered_words = [word for word in words if word not in STOP_WORDS and len(word) > 1]
     text = ' '.join(filtered_words)
@@ -573,6 +626,159 @@ def main():
                     st.write("No image available")
             
             st.markdown("---")  # Separator between rows
+
+def load_embeddings_and_model2(filename='embeddings_data.pkl'):
+    """Load embeddings and initialize model from Hugging Face."""
+    try:
+        # Download file from Hugging Face
+        url = f"https://huggingface.co/Zumitify/NLP_project_models/resolve/main/{filename}"
+        response = requests.get(url, stream=True)
+        response.raise_for_status()
+        
+        # Create a temporary file to store the downloaded data
+        with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+            for chunk in response.iter_content(chunk_size=8192):
+                tmp_file.write(chunk)
+            tmp_path = tmp_file.name
+        
+        # Load data with explicit CPU mapping
+        data = torch.load(
+            tmp_path,
+            map_location=torch.device('cpu')
+        )
+        
+        # Clean up temporary file
+        os.unlink(tmp_path)
+        
+        # Initialize model
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        model = SentenceTransformer(data['model_name'], device=device)
+        
+        # Convert embeddings to CPU if they are tensors
+        if isinstance(data['metadata_embeddings'], torch.Tensor):
+            data['metadata_embeddings'] = data['metadata_embeddings'].to('cpu')
+        elif isinstance(data['metadata_embeddings'], dict):
+            for key in data['metadata_embeddings']:
+                if isinstance(data['metadata_embeddings'][key], torch.Tensor):
+                    data['metadata_embeddings'][key] = data['metadata_embeddings'][key].to('cpu')
+        
+        if isinstance(data['review_embeddings'], torch.Tensor):
+            data['review_embeddings'] = data['review_embeddings'].to('cpu')
+        elif isinstance(data['review_embeddings'], dict):
+            for key in data['review_embeddings']:
+                if isinstance(data['review_embeddings'][key], torch.Tensor):
+                    data['review_embeddings'][key] = data['review_embeddings'][key].to('cpu')
+        
+        return (
+            data['metadata_embeddings'],
+            data['review_embeddings'],
+            data['product_asins'],
+            model
+        )
+    except Exception as e:
+        st.error(f"Error loading embeddings from Hugging Face: {e}")
+        return None, None, None, None
+
+@st.cache_resource
+def load_data2():
+    """Load data from Hugging Face instead of local directory."""
+    try:
+        # List of files to download
+        files_to_load = [
+            'metadata_df.pkl',
+            'reviews_df.pkl',
+            'docs_df.pkl',
+            'vectorizer.pkl',
+            'tfidf_matrix.pkl'
+        ]
+        
+        # Create a temporary directory to store downloaded files
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Download and load each file
+            loaded_data = {}
+            for file in files_to_load:
+                st.write(f"Processing file: {file}")  # Debug print
+                url = f"https://huggingface.co/Zumitify/NLP_project_models/resolve/main/{file}"
+                response = requests.get(url, stream=True)
+                response.raise_for_status()
+                
+                temp_file_path = os.path.join(temp_dir, file)
+                with open(temp_file_path, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                
+                # Load data using appropriate method based on file type
+                if file in ['metadata_df.pkl', 'reviews_df.pkl', 'docs_df.pkl']:
+                    st.write(f"Loading pandas dataframe: {file}")  # Debug print
+                    # Custom unpickler for pandas dataframes
+                    class CustomUnpickler(pickle.Unpickler):
+                        def find_class(self, module, name):
+                            st.write(f"Finding class: {module}.{name}")  # Debug print
+                            # Handle numpy module paths and special functions
+                            if module.startswith('numpy'):
+                                if name == '_reconstruct':
+                                    return numpy.core.multiarray._reconstruct
+                                elif name == '_frombuffer':
+                                    return numpy.core.numeric._frombuffer
+                                elif name == 'dtype':
+                                    return numpy.dtype
+                                module = 'numpy'
+                            return super().find_class(module, name)
+                        
+                        def persistent_load(self, pid):
+                            st.write(f"Persistent load: {pid}")  # Debug print
+                            # Handle persistent loading for numpy objects
+                            if isinstance(pid, tuple) and len(pid) == 2:
+                                if pid[0] == 'numpy.core.multiarray':
+                                    return numpy.core.multiarray._reconstruct
+                                elif pid[0] == 'numpy.core.numeric':
+                                    return numpy.core.numeric._frombuffer
+                            elif isinstance(pid, str):
+                                if pid == 'numpy.core.multiarray._reconstruct':
+                                    return numpy.core.multiarray._reconstruct
+                                elif pid == 'numpy.core.numeric._frombuffer':
+                                    return numpy.core.numeric._frombuffer
+                            return super().persistent_load(pid)
+                    
+                    try:
+                        with open(temp_file_path, 'rb') as f:
+                            loaded_data[file.replace('.pkl', '')] = CustomUnpickler(f).load()
+                        st.write(f"Successfully loaded {file}")  # Debug print
+                    except Exception as e:
+                        st.error(f"Error loading {file}: {str(e)}")
+                        raise
+                else:
+                    st.write(f"Loading regular pickle file: {file}")  # Debug print
+                    try:
+                        with open(temp_file_path, 'rb') as f:
+                            loaded_data[file.replace('.pkl', '')] = pickle.load(f)
+                        st.write(f"Successfully loaded {file}")  # Debug print
+                    except Exception as e:
+                        st.error(f"Error loading {file}: {str(e)}")
+                        raise
+            
+            st.write("Loading embeddings and model...")  # Debug print
+            try:
+                metadata_embeddings, review_embeddings, product_asins, model = load_embeddings_and_model()
+                st.write("Successfully loaded embeddings and model")  # Debug print
+            except Exception as e:
+                st.error(f"Error loading embeddings and model: {str(e)}")
+                raise
+            
+            return (
+                loaded_data['metadata_df'],
+                loaded_data['reviews_df'],
+                loaded_data['docs_df'],
+                loaded_data['vectorizer'],
+                loaded_data['tfidf_matrix'],
+                model,
+                metadata_embeddings,
+                product_asins,
+                review_embeddings
+            )
+    except Exception as e:
+        st.error(f"Error loading data from Hugging Face: {e}")
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), None, None, None, None, None, None
 
 if __name__ == "__main__":
     main()
