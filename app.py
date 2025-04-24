@@ -73,7 +73,6 @@ if not download_from_github():
 def load_embeddings_and_model(filename='contents/embeddings_data.pkl'):
     """Load embeddings and initialize model from pickle file."""
     try:
-
         # Load data with explicit CPU mapping and pickle module
         data = torch.load(
             filename,
@@ -86,25 +85,19 @@ def load_embeddings_and_model(filename='contents/embeddings_data.pkl'):
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         model = SentenceTransformer(data['model_name'], device=device)
         
-        # Convert embeddings to CPU if they are tensors
-        if isinstance(data['metadata_embeddings'], torch.Tensor):
-
-            data['metadata_embeddings'] = data['metadata_embeddings'].to('cpu')
-        elif isinstance(data['metadata_embeddings'], dict):
-            for key in data['metadata_embeddings']:
-                if isinstance(data['metadata_embeddings'][key], torch.Tensor):
-                    data['metadata_embeddings'][key] = data['metadata_embeddings'][key].to('cpu')
+        # Convert list embeddings to dictionary format
+        metadata_embeddings_dict = {}
+        review_embeddings_dict = {}
         
-        if isinstance(data['review_embeddings'], torch.Tensor):
-            data['review_embeddings'] = data['review_embeddings'].to('cpu')
-        elif isinstance(data['review_embeddings'], dict):
-            for key in data['review_embeddings']:
-                if isinstance(data['review_embeddings'][key], torch.Tensor):
-                    data['review_embeddings'][key] = data['review_embeddings'][key].to('cpu')
+        for i, asin in enumerate(data['product_asins']):
+            if i < len(data['metadata_embeddings']):
+                metadata_embeddings_dict[asin] = torch.tensor(data['metadata_embeddings'][i])
+            if i < len(data['review_embeddings']):
+                review_embeddings_dict[asin] = torch.tensor(data['review_embeddings'][i])
         
         return (
-            data['metadata_embeddings'],
-            data['review_embeddings'],
+            metadata_embeddings_dict,
+            review_embeddings_dict,
             data['product_asins'],
             model
         )
@@ -126,8 +119,24 @@ def find_similar_products(query, model, metadata_embeddings, product_asins, top_
     # Encode query
     query_embedding = model.encode(query, convert_to_tensor=True)
     
+    # Convert dictionary embeddings to tensor if needed
+    if isinstance(metadata_embeddings, dict):
+        # Create a list of embeddings in the same order as product_asins
+        embeddings_list = []
+        for asin in product_asins:
+            if asin in metadata_embeddings:
+                embeddings_list.append(metadata_embeddings[asin])
+            else:
+                # If ASIN not found, use a zero vector of the same dimension
+                embeddings_list.append(torch.zeros_like(next(iter(metadata_embeddings.values()))))
+        
+        # Stack the embeddings into a tensor
+        metadata_embeddings_tensor = torch.stack(embeddings_list)
+    else:
+        metadata_embeddings_tensor = metadata_embeddings
+    
     # Find similar products
-    hits = util.semantic_search(query_embedding, metadata_embeddings, top_k=top_n)
+    hits = util.semantic_search(query_embedding, metadata_embeddings_tensor, top_k=top_n)
     
     # Create initial results dataframe
     results = []
@@ -145,7 +154,6 @@ def find_similar_products(query, model, metadata_embeddings, product_asins, top_
     if not results_df.empty:
         results_df = results_df.sort_values('similarity_score', ascending=False)
     
-    #st.write(results_df)
     return results_df, query_embedding
 
 def semantic_search_similar_products(similar_products_df, query_embedding, review_embeddings, metadata_embeddings, alpha=0.5):
@@ -159,11 +167,11 @@ def semantic_search_similar_products(similar_products_df, query_embedding, revie
             asin_index = None
             
             if isinstance(metadata_embeddings, dict):
-                # If embeddings are dictionaries, use ASIN as key
                 if asin in metadata_embeddings:
                     asin_index = asin
+                else:
+                    continue
             elif isinstance(metadata_embeddings, torch.Tensor):
-                # If embeddings are tensors, use row index
                 asin_index = idx
             
             if asin_index is not None:
@@ -195,9 +203,10 @@ def semantic_search_similar_products(similar_products_df, query_embedding, revie
                     for hit in hits[0]:
                         score = hit['score']
                         results.setdefault(asin, score)
+                else:
+                    continue
                 
         except Exception as e:
-            st.write(f"Error processing ASIN {asin}: {str(e)}")
             continue
     
     return results
