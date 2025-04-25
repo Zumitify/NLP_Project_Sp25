@@ -22,7 +22,7 @@ cd streamlit
 
 3. Run the demo script:
 ```bash
-python demo.py
+python3 demo.py
 ```
 
 The script will:
@@ -65,7 +65,7 @@ To run the demo:
 1. Make sure you have Python 3.13.1 or higher installed
 2. Open a terminal/command prompt
 3. Navigate to the project directory
-4. Run: python demo.py
+4. Run: python3 demo.py
 5. Wait for the installation to complete
 6. The app will open in your browser
 7. To stop the app, press Ctrl+C in the terminal
