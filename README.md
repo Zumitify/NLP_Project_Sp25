@@ -14,6 +14,7 @@ This project contains a Streamlit application for NLP tasks. The application req
 git clone https://github.com/Zumitify/NLP_Project_Sp25.git
 cd NLP_Project_Sp25
 ```
+#### Note you will have to download all files from https://github.com/Zumitify/NLP_Project_Sp25/tree/main/contents manually and replace the one's in 'contents/' directory
 
 2. Navigate to the streamlit directory:
 ```bash
