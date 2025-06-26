@@ -7,7 +7,7 @@ This NLP-powered app uses Amazon product reviews to help users find products bas
 <video src="NLP_Demo.mp4" controls width="600"></video>
 ## Demo
 
-[Watch the demo video](./NLP_Demo.mov)
+[Watch the demo video](./NLP_Demo.mp4)
 
 
 ## NLP Project - Streamlit Demo
