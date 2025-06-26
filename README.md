@@ -2,6 +2,10 @@
 
 This NLP-powered app uses Amazon product reviews to help users find products based on natural language queries. For example, a query like *"I need headphones that block traffic noise"* returns noise-cancelling headphone recommendations. It leverages the [Amazon Reviews 2023 dataset](https://huggingface.co/datasets/McAuley-Lab/Amazon-Reviews-2023) for deep semantic matching.
 
+## Demo
+
+<video src="NLP Demo.mov" controls width="600"></video>
+
 
 ## NLP Project - Streamlit Demo
 
