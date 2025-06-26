@@ -1,3 +1,8 @@
+## Reviews based Recommendation System for Amazon Products
+
+This NLP-powered app uses Amazon product reviews to help users find products based on natural language queries. For example, a query like *"I need headphones that block traffic noise"* returns noise-cancelling headphone recommendations. It leverages the [Amazon Reviews 2023 dataset](https://huggingface.co/datasets/McAuley-Lab/Amazon-Reviews-2023) for deep semantic matching.
+
+
 # NLP Project - Streamlit Demo
 
 This project contains a Streamlit application for NLP tasks. The application requires Python 3.13.1 or higher to run.
